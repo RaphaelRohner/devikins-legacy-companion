@@ -3547,6 +3547,52 @@ the only change needed - the splash screen and Feedback.js's email
 subject both read it live via App.js's `APP_VERSION`, nothing else
 hardcodes the version number anywhere in the app.
 
+## Fixed: activating a freshly imported set could fail with a cryptic error, and get stuck
+
+Found by Raphael on the very first real test of the 3.1.0 build: he
+deleted every wallet set, imported one back in from a zip, and tapping
+it to load it failed with "Loading that set didn't complete: Cannot
+read property 'replace' of null" - a low-level error from deep inside
+expo-sqlite, not this app's own code, with no wallet set ever
+successfully loading afterward until the app was force-closed and
+reopened.
+
+**Root cause, as best as static reading of the code can pin it down**
+(no crash logs were available from a production build to confirm it
+directly): `database.js` caches its one open per-set database
+connection in a module-level `databaseConnectionPromise`, only
+recreated when that variable is falsy. If opening a database ever
+fails for ANY reason - here, most likely `getDatabase()` being called
+at some point while no wallet set was active yet (`activeDatabaseFileName`
+still `null`, e.g. right after deleting the last set) - the resulting
+FAILED promise stayed cached as "the" connection. Every later call
+just kept re-awaiting that same already-rejected promise and failing
+the exact same way, even switching to a perfectly good, freshly
+imported set, since the cache was never being told to try again.
+
+**Fixed two ways:**
+
+- `getDatabase()` now clears its own cache back to `null` whenever
+  opening fails, so the very next attempt gets a genuine fresh retry
+  instead of being stuck on the same dead promise until a full app
+  restart. It also throws a plain, specific error ("No wallet set is
+  currently active...") if it's ever called with nothing active at
+  all, rather than letting a `null` filename reach expo-sqlite and
+  fail with a low-level message that doesn't say what actually went
+  wrong.
+- `switchToWalletSet` now checks that the set it's about to load
+  actually has a database filename on record before trying to open
+  it, and fails with a plain, specific message naming the set if it
+  doesn't - should never happen in practice (that field is written
+  once at creation and never cleared), but a clear message beats a
+  cryptic crash either way.
+
+Restarting the app alone likely already un-sticks any occurrence of
+this from before the fix, since the broken cache is only ever in
+memory - but the fix means a future occurrence (of this or any other
+transient database-open failure) resolves itself on the next attempt
+instead of requiring a restart at all.
+
 ## App structure decisions (made while building)
  (made while building)
 

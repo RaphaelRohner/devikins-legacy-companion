@@ -56,7 +56,28 @@ let databaseConnectionPromise = null;
 
 function getDatabase() {
   if (!databaseConnectionPromise) {
-    databaseConnectionPromise = SQLite.openDatabaseAsync(activeDatabaseFileName);
+    if (!activeDatabaseFileName) {
+      // Nothing to open - whatever called this should have checked
+      // there's an active wallet set first. Throwing a clear, specific
+      // error here (rather than letting expo-sqlite fail lower down
+      // trying to use a null filename) is both more honest about what
+      // actually went wrong and - critically - never gets cached, so
+      // it can't get anything stuck the way the bug below describes.
+      throw new Error('No wallet set is currently active, so there is no database to open.');
+    }
+    // 2026-09-27, found via a real bug report: if opening ever fails
+    // for any reason, don't leave the FAILED promise sitting here as
+    // "the" cached connection - every future call to getDatabase()
+    // would keep re-awaiting that same already-rejected promise and
+    // fail the exact same way forever, even after whatever caused the
+    // original failure (e.g. a stale/blank activeDatabaseFileName) is
+    // long gone, until the app is fully force-closed and reopened.
+    // Clearing the cache back to null on failure means the very next
+    // call gets a genuine fresh retry instead of being stuck.
+    databaseConnectionPromise = SQLite.openDatabaseAsync(activeDatabaseFileName).catch((err) => {
+      databaseConnectionPromise = null;
+      throw err;
+    });
   }
   return databaseConnectionPromise;
 }
@@ -1595,6 +1616,14 @@ export async function switchToWalletSet(id) {
   const registryDb = await getRegistryDatabase();
   const targetSet = await registryDb.getFirstAsync(`SELECT * FROM wallet_sets WHERE id = ?`, [id]);
   if (!targetSet) return;
+  if (!targetSet.db_file_name) {
+    // Should never happen (db_file_name is written once, at creation,
+    // and never cleared) - but if this set's own record is somehow
+    // missing it, say so plainly rather than letting a null filename
+    // reach expo-sqlite further down and fail with a cryptic low-level
+    // error instead.
+    throw new Error(`"${targetSet.name}"'s own record is missing its database file - it can't be loaded. Deleting it and importing it again (if you still have the export file) should fix it.`);
+  }
 
   await closeActiveDatabase();
   await registryDb.runAsync(`UPDATE wallet_sets SET is_active = 0`);

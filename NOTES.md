@@ -3523,6 +3523,30 @@ a small, well-known algorithm and this app already reads every one of
 those bytes during import anyway, so the check adds real confidence at
 essentially no extra cost.
 
+**Also landed in this same round, after the checksum work above:** the
+export-progress button no longer overflows its tile; the now-redundant
+"Empty" wallet-set action was removed; the wallet-sets list is part of
+the same scrollable region as the rest of the Wallets screen instead of
+pushing it off-screen; Import shows real progress the same way Export
+always has, including a row-count progress for the "Rebuilding..." step
+once the zip itself is fully read; and, per Raphael's own call after
+weighing the alternatives, every other button/field on the Wallets
+screen (plus the screen's own back button and Android's hardware Back)
+is now locked while an export or import is running, rather than
+allowing something like a Delete or Switch Set to race it.
+
+## Version bumped to 3.1.0, closing out this round of work
+
+Same reasoning as the 2.0.0 bump documented in this file's own "Bump
+app.json's version" rule near the top: a real, substantial batch of
+user-facing work (everything under the "V3.1" headings above, plus the
+checksum verification and screen-locking work just described) had
+landed with the version number still sitting at 3.0.0. Bumping
+`app.json`'s `version` field (and `package.json`'s mirrored copy) is
+the only change needed - the splash screen and Feedback.js's email
+subject both read it live via App.js's `APP_VERSION`, nothing else
+hardcodes the version number anywhere in the app.
+
 ## App structure decisions (made while building)
  (made while building)
 

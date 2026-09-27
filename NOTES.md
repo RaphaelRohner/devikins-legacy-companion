@@ -3593,6 +3593,42 @@ memory - but the fix means a future occurrence (of this or any other
 transient database-open failure) resolves itself on the next attempt
 instead of requiring a restart at all.
 
+## Fixed: a freshly imported set showed correct stats but zero images
+
+Found immediately after the fix above, on the same test: once the
+imported set could actually be activated, its wallets/traits/stats all
+showed up correctly - but not a single image did.
+
+**Root cause:** every NFT row's `local_image_path` column is a FULL
+path, baked in once at the moment its image was first downloaded (see
+`storeImage`'s own comment in `imageStorage.js`) - e.g.
+`.../nft-images/devikin-123.jpg`. Import gives every set its own fresh,
+uniquely-named images folder (`getOrCreateGroup` in `exportImport.js`
+- so two imports of the same export file never collide with each
+other), and correctly copies the actual image files into THAT folder -
+but the restored database rows still carried whatever OLD folder path
+was baked in at export time. Stats/traits/names all come straight from
+the row data itself, so those were always fine; only whatever tried to
+actually load the picture from that now-wrong path failed, silently
+(no error - the app just has nothing to show for a path that doesn't
+exist). Checksum verification never caught this because it only checks
+that each image FILE's bytes came through intact, never anything about
+the path stored alongside it - a perfectly correct file sitting in the
+right new folder can still be pointed at by a database row that never
+got told the folder changed.
+
+**Fixed** in the import step, right after `database.json`'s dump is
+parsed and before it's restored: for every row with a
+`local_image_path`, the folder part is rewritten to this import's own
+images folder, keeping just the filename (`kind-nonce.ext`, which never
+changes between export and import - only the folder does).
+
+Likely present since the export/import feature's very first working
+version - simply never visually caught before, since most testing
+until now focused on the import completing and its checksums matching
+rather than actually switching into the freshly imported set and
+looking at it.
+
 ## App structure decisions (made while building)
  (made while building)
 

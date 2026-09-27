@@ -114,6 +114,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import { Platform } from 'react-native';
 import { Zip, ZipPassThrough, strToU8, strFromU8 } from 'fflate';
 import { checkpointWalletSetForExport, registerImportedWalletSet, logImportedSetRowCounts, dumpWalletSetData, restoreWalletSetData } from '../db/database';
+import { TRAIT_COLUMNS } from '../constants/schema';
 
 // Bumped only if a future change to what's INSIDE an export (the shape
 // of manifest.json, what folders/files exist) would need the import
@@ -1056,6 +1057,33 @@ async function importWalletSetsZipFromLocalFile(pickedUri, { onProgress } = {}) 
     } else if (group.dumpBytes && group.dumpBytes.length > 0 && !group.dumpBytesVerified) {
       console.log(`[exportImport] database.json for "${manifest.name}" failed its checksum check - importing as an empty set rather than trusting data that didn't come through intact.`);
     }
+
+    // 2026-09-27, found via a real bug report: every NFT row's
+    // local_image_path is a full path baked in at the moment its image
+    // was first downloaded (see storeImage's own comment in
+    // imageStorage.js) - pointing at whatever images folder was active
+    // back THEN, which is never the same folder this import just
+    // copied the actual image files into (see getOrCreateGroup above -
+    // a fresh, uniquely-named folder every single import, so two
+    // imports of the same export never collide). Left as-is, every
+    // restored row would keep pointing at a folder that doesn't exist
+    // here at all - stats and traits would still be correct (they don't
+    // depend on this path), but no image would ever show for a freshly
+    // imported set, even though the image files themselves came
+    // through and checksum-verified just fine. The filename itself
+    // (kind-nonce.ext, see storeImage) never changes between export and
+    // import, so rewriting just the folder part of the path, for every
+    // row that has one, is all that's needed.
+    const importedImagesDirUri = `${FileSystem.documentDirectory}${group.imagesDirName}/`;
+    for (const kind of Object.keys(TRAIT_COLUMNS)) {
+      for (const row of dump[kind] || []) {
+        if (row.local_image_path) {
+          const fileName = row.local_image_path.slice(row.local_image_path.lastIndexOf('/') + 1);
+          row.local_image_path = `${importedImagesDirUri}${fileName}`;
+        }
+      }
+    }
+
     // Rebuilding a large set's data (thousands of individual row
     // inserts - see restoreWalletSetData's own comment in database.js)
     // can take real, noticeable time on its own, well after the last
